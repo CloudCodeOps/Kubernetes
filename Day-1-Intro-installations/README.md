@@ -195,7 +195,7 @@ eksctl create cluster --name cluster-name  \
 ```bash
 eksctl create cluster --name test \
   --region us-east-1 \
-  --node-type t2.medium
+  --node-type c7i-flex.large
 ```
 
 #### After creating cluster — update kubeconfig
@@ -204,13 +204,13 @@ eksctl create cluster --name test \
 aws eks update-kubeconfig --region <region> --name <cluster name>
 
 # Example:
-aws eks update-kubeconfig --region ap-south-1 --name naresh
+aws eks update-kubeconfig --region us-east-1 --name test
 ```
 
 #### To delete the EKS cluster
 
 ```bash
-eksctl delete cluster naresh --region ap-south-1
+eksctl delete cluster --name test --region us-east-1
 ```
 
 ---
