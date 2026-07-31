@@ -1,0 +1,206 @@
+/*
+  Jenkins Pipeline: Infra Bootstrap
+  Steps:
+    1. Install Git
+    2. Install Docker
+    3. Add jenkins/current user to docker group
+    4. Start & enable Docker service
+    5. Install kubectl
+    5a. Install eksctl
+    5b. Create an EKS cluster (with worker nodes) using eksctl
+    6-10. Install ArgoCD on the new EKS cluster
+
+  Assumptions:
+    - Agent runs on Amazon Linux 2 or Amazon Linux 2023 (uses yum/dnf), amd64 architecture
+    - Jenkins agent user has passwordless sudo (NOPASSWD in /etc/sudoers)
+    - AWS CLI is available on the agent and eksctl can authenticate to AWS.
+      This pipeline expects a Jenkins credential of kind "Username and password"
+      with ID "aws-credentials" holding your AWS_ACCESS_KEY_ID (username) and
+      AWS_SECRET_ACCESS_KEY (password). Swap this for an IAM instance role on
+      the agent if you'd rather not store keys in Jenkins.
+    - eksctl create cluster provisions the EKS control plane + a managed node
+      group and writes/merges kubeconfig into ~/.kube/config automatically.
+    - Run as root or with sudo; adjust `sudo` calls if your agent already runs as root.
+*/
+
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        ARGOCD_NAMESPACE = 'argocd'
+    }
+
+    stages {
+
+        stage('1. Install Git') {
+            steps {
+                sh '''
+                    set -e
+                    if ! command -v git &> /dev/null; then
+                        echo ">>> Installing Git"
+                        sudo yum update -y
+                        sudo yum install -y git
+                    else
+                        echo ">>> Git already installed: $(git --version)"
+                    fi
+                '''
+            }
+        }
+
+        stage('2. Install Docker') {
+            steps {
+                sh '''
+                    set -e
+                    if ! command -v docker &> /dev/null; then
+                        echo ">>> Installing Docker"
+                        sudo yum update -y
+
+                        . /etc/os-release
+                        if [ "$VERSION_ID" = "2023" ]; then
+                            echo ">>> Detected Amazon Linux 2023, using dnf/yum docker package"
+                            sudo yum install -y docker
+                        else
+                            echo ">>> Detected Amazon Linux 2, using amazon-linux-extras"
+                            sudo amazon-linux-extras install docker -y
+                        fi
+                    else
+                        echo ">>> Docker already installed: $(docker --version)"
+                    fi
+                '''
+            }
+        }
+
+        stage('3. Configure Docker Group') {
+            steps {
+                sh '''
+                    set -e
+                    echo ">>> Ensuring docker group exists and current user is a member"
+                    sudo groupadd -f docker
+                    sudo usermod -aG docker "$(whoami)"
+                    echo ">>> NOTE: group membership takes effect on next login/shell."
+                    echo ">>> This pipeline uses 'sudo docker' / newgrp where needed so the current run isn't blocked."
+                '''
+            }
+        }
+
+        stage('4. Start Docker Service') {
+            steps {
+                sh '''
+                    set -e
+                    echo ">>> Enabling and starting Docker service"
+                    sudo systemctl enable docker
+                    sudo systemctl start docker
+                    sudo systemctl status docker --no-pager
+                    sudo docker run --rm hello-world
+                '''
+            }
+        }
+
+        stage('5. Install kubectl') {
+            steps {
+                sh '''
+                    set -e
+                    echo ">>> Installing kubectl"
+                    curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s \
+                      https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+                    chmod +x ./kubectl
+                    sudo mv ./kubectl /usr/local/bin/kubectl
+
+                    echo ">>> kubectl version:"
+                    kubectl version --client
+                '''
+            }
+        }
+
+        stage('5a. Install eksctl') {
+            steps {
+                sh '''
+                    set -e
+                    echo ">>> Installing eksctl"
+                    curl --silent --location \
+                      "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" \
+                      | tar xz -C /tmp
+                    sudo mv /tmp/eksctl /usr/local/bin
+                    eksctl version
+                '''
+            }
+        }
+
+        stage('5b. Create EKS Cluster') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'aws-credentials',
+                    usernameVariable: 'AWS_ACCESS_KEY_ID',
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
+                    sh '''
+                        set -e
+                        echo ">>> Creating EKS cluster (this can take 15-20 minutes)"
+                        eksctl create cluster --name test \
+                          --region us-east-1 \
+                          --node-type c7i-flex.large
+
+                        echo ">>> Verifying cluster access"
+                        kubectl get nodes -o wide
+                    '''
+                }
+            }
+        }
+
+        stage('6. Create ArgoCD Namespace') {
+            steps {
+                sh 'kubectl create namespace ${ARGOCD_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -'
+            }
+        }
+
+        stage('7. Install ArgoCD') {
+            steps {
+                sh 'kubectl apply -n ${ARGOCD_NAMESPACE} -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml'
+            }
+        }
+
+        stage('8. Verify Installation') {
+            steps {
+                sh '''
+                    set -e
+                    echo ">>> Waiting for ArgoCD server to be ready"
+                    kubectl rollout status deployment/argocd-server -n ${ARGOCD_NAMESPACE} --timeout=300s
+                    kubectl get pods -n ${ARGOCD_NAMESPACE}
+                '''
+            }
+        }
+
+        stage('9. Expose ArgoCD Server') {
+            steps {
+                sh 'kubectl patch svc argocd-server -n ${ARGOCD_NAMESPACE} -p \'{"spec": {"type": "LoadBalancer"}}\''
+            }
+        }
+
+        stage('10. Get Initial Admin Password') {
+            steps {
+                sh '''
+                    echo ">>> Initial admin password (base64 decoded):"
+                    kubectl -n ${ARGOCD_NAMESPACE} get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+                    echo ""
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ Pipeline completed: Git, Docker, Kubernetes, and ArgoCD installed successfully.'
+        }
+        failure {
+            echo '❌ Pipeline failed. Check the stage logs above for the failing step.'
+        }
+        always {
+            sh 'kubectl get pods -n ${ARGOCD_NAMESPACE} -o wide || true'
+        }
+    }
+}
