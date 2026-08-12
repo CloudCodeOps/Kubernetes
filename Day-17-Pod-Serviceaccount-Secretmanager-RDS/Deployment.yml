@@ -33,7 +33,7 @@ spec:
               value: "database-1.c2zmaks84ifc.us-east-1.rds.amazonaws.com"
 
             - name: SECRET_NAME
-              value: "rds!db-ac74596e-50e0-4120-8858-461f7beef0fe"
+              value: "flask-backend-rds"
 
           resources:
             requests:
