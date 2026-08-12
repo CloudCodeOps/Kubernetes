@@ -20,7 +20,7 @@ spec:
       containers:
         - name: flask-backend
 
-          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/flask-backend:v1
+          image: 540191526881.dkr.ecr.us-east-1.amazonaws.com/flask-backend
 
           ports:
             - containerPort: 5000
@@ -30,7 +30,7 @@ spec:
               value: "us-east-1"
 
             - name: DB_HOST
-              value: "database-1.ckhkeogg21ln.us-east-1.rds.amazonaws.com"
+              value: "database-1.c2zmaks84ifc.us-east-1.rds.amazonaws.com"
 
             - name: SECRET_NAME
               value: "rds!db-ac74596e-50e0-4120-8858-461f7beef0fe"
