@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: flask-backend-sa
+  name: backend-sa                # matches deployment.yaml -> spec.template.spec.serviceAccountName
   namespace: default              # <-- update to match your deployment namespace
   labels:
     app: flask-backend
@@ -14,7 +14,7 @@ metadata:
   #   aws eks create-pod-identity-association \
   #     --cluster-name <your-cluster-name> \
   #     --namespace default \
-  #     --service-account flask-backend-sa \
+  #     --service-account backend-sa \
   #     --role-arn arn:aws:iam::<account-id>:role/flask-backend-secrets-role
   #
   # The IAM role must trust pods.eks.amazonaws.com and have a policy
