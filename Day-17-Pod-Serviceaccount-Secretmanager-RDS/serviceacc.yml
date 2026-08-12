@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flask-backend-sa
+  namespace: default              # <-- update to match your deployment namespace
+  labels:
+    app: flask-backend
+  # NOTE on auth model:
+  # This app's get_secret() comment says credentials come from
+  # "EKS Pod Identity" (the newer EKS Pod Identity Agent), NOT IRSA.
+  # With Pod Identity you do NOT annotate the ServiceAccount with a role ARN.
+  # Instead you associate this ServiceAccount with an IAM role via:
+  #
+  #   aws eks create-pod-identity-association \
+  #     --cluster-name <your-cluster-name> \
+  #     --namespace default \
+  #     --service-account flask-backend-sa \
+  #     --role-arn arn:aws:iam::<account-id>:role/flask-backend-secrets-role
+  #
+  # The IAM role must trust pods.eks.amazonaws.com and have a policy
+  # allowing secretsmanager:GetSecretValue on the target secret
+  # (rds!db-ac74596e-50e0-4120-8858-461f7beef0fe).
+  #
+  # -----------------------------------------------------------------
+  # If you are instead using classic IRSA (OIDC-based), uncomment the
+  # annotation below and remove the Pod Identity association above:
+  # annotations:
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/flask-backend-secrets-role
+automountServiceAccountToken: true
