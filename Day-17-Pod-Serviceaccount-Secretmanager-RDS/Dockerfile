@@ -30,6 +30,11 @@ RUN useradd --create-home --shell /bin/bash appuser \
     && chown -R appuser:appuser /app /var/log/app
 USER appuser
 
+# Runtime config note (matches deployment.yaml):
+# AWS_REGION, DB_HOST, and SECRET_NAME are injected via env vars in the
+# Deployment spec. DB_PORT (default 3306) and DB_NAME (default "dev")
+# are NOT set there, so the app.py defaults apply unless overridden.
+
 EXPOSE 5000
 
 # Basic container-level health check hitting the Flask /health route
